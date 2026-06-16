@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus Tracker</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg:        #000000;
+  --surface:   #0a0a0a;
+  --surface2:  #111111;
+  --surface3:  #181818;
+  --border:    #1f1f1f;
+  --border2:   #2a2a2a;
+  --accent:    #c8a96e;
+  --accent-lo: rgba(200,169,110,0.08);
+  --accent-md: rgba(200,169,110,0.18);
+  --blue:      #4a9eff;
+  --blue-lo:   rgba(74,158,255,0.08);
+  --red:       #ff4d4d;
+  --red-lo:    rgba(255,77,77,0.10);
+  --text:      #e2e2e2;
+  --text2:     #888888;
+  --text3:     #444444;
+  --radius:    12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-weight: 400;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 20px 64px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── LAYOUT SHELL ── */
+.shell {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── HEADER ── */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-pip {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: breathe 3s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,100% { opacity: 1; box-shadow: 0 0 8px var(--accent); }
+  50% { opacity: 0.4; box-shadow: 0 0 2px var(--accent); }
+}
+
+.brand-name {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+
+.top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.top-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text3);
+  letter-spacing: 0.04em;
+}
+
+.top-time-live {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text2);
+}
+
+/* ── TIMER HERO ── */
+.timer-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 0 36px;
+  position: relative;
+}
+
+.ring-container {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin-bottom: 32px;
+}
+
+.ring-container svg {
+  transform: rotate(-90deg);
+  width: 180px;
+  height: 180px;
+}
+
+.ring-track {
+  fill: none;
+  stroke: var(--surface3);
+  stroke-width: 3;
+}
+
+.ring-progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: butt;
+  stroke-dasharray: 532.0;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.95s linear, stroke 0.4s ease;
+  filter: drop-shadow(0 0 6px rgba(200,169,110,0.5));
+}
+
+.ring-glow {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-linecap: butt;
+  stroke-dasharray: 532.0;
+  stroke-dashoffset: 0;
+  opacity: 0.15;
+  transition: stroke-dashoffset 0.95s linear, stroke 0.4s ease;
+}
+
+.ring-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.ring-countdown {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 38px;
+  font-weight: 400;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.ring-sublabel {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+.ring-status-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: 6px;
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Timer controls */
+.timer-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ctrl-btn {
+  height: 36px;
+  padding: 0 20px;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.ctrl-btn:hover {
+  border-color: var(--text3);
+  color: var(--text);
+}
+
+.ctrl-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.ctrl-btn.primary:hover {
+  background: #d4b87a;
+  border-color: #d4b87a;
+}
+
+/* ── STATUS LINE ── */
+.status-line {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text3);
+  letter-spacing: 0.04em;
+  padding: 10px 0 0;
+}
+
+/* ── DIVIDER ── */
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0 0 24px;
+}
+
+/* ── STATS ROW ── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.stat-cell {
+  background: var(--surface);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1;
+}
+
+.stat-key {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+/* ── INPUT PANEL ── */
+.input-panel {
+  background: var(--surface);
+  border: 1px solid var(--accent-md);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 24px;
+  display: none;
+  animation: panelSlide 0.2s ease;
+}
+
+@keyframes panelSlide {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.input-panel.open { display: block; }
+
+.input-panel-head {
+  padding: 14px 18px 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.input-body {
+  padding: 12px 18px 18px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+textarea {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 11px 13px;
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  resize: none;
+  min-height: 68px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+textarea:focus {
+  border-color: var(--accent);
+}
+
+textarea::placeholder {
+  color: var(--text3);
+  font-weight: 400;
+}
+
+.save-btn {
+  height: 68px;
+  padding: 0 18px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #000;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.18s;
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+}
+
+.save-btn:hover { background: #d4b87a; }
+
+/* ── LOG SECTION ── */
+.log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.log-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+.log-clear {
+  background: none;
+  border: none;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  color: var(--text3);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: color 0.15s;
+}
+
+.log-clear:hover { color: var(--red); }
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.log-entry {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 13px 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
+  animation: entryIn 0.2s ease;
+  position: relative;
+}
+
+@keyframes entryIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.log-entry:hover {
+  border-color: var(--border2);
+}
+
+.log-entry:hover .entry-del { opacity: 1; }
+
+.entry-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.entry-text {
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.entry-del {
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  opacity: 0;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.entry-del:hover { color: var(--red); }
+
+/* empty state */
+.empty {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--text3);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+/* ── ALERT BANNER ── */
+.alert-banner {
+  display: none;
+  background: var(--accent-lo);
+  border: 1px solid rgba(200,169,110,0.3);
+  border-radius: var(--radius);
+  padding: 13px 18px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  animation: panelSlide 0.25s ease;
+}
+
+.alert-banner.show { display: flex; }
+
+.alert-dismiss {
+  background: none;
+  border: none;
+  color: var(--accent);
+  opacity: 0.5;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.alert-dismiss:hover { opacity: 1; }
+
+/* ── TOAST ── */
+#toast {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 11px 18px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  display: none;
+  z-index: 999;
+  gap: 8px;
+  align-items: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  animation: toastUp 0.25s ease;
+}
+
+@keyframes toastUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.toast-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+
+<div id="toast"><span class="toast-dot"></span> Entry logged</div>
+
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <div class="top-bar">
+    <div class="brand">
+      <div class="brand-pip"></div>
+      <span class="brand-name">Focus Log</span>
+    </div>
+    <div class="top-right">
+      <span class="top-date" id="top-date"></span>
+      <span class="top-time-live" id="top-time-live"></span>
+    </div>
+  </div>
+
+  <!-- TIMER HERO -->
+  <div class="timer-hero">
+    <div class="ring-container">
+      <svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg">
+        <circle class="ring-track" cx="90" cy="90" r="84.7"/>
+        <circle class="ring-glow" id="ring-glow" cx="90" cy="90" r="84.7"/>
+        <circle class="ring-progress" id="ring-progress" cx="90" cy="90" r="84.7"/>
+      </svg>
+      <div class="ring-inner">
+        <span class="ring-countdown" id="countdown">15:00</span>
+        <span class="ring-sublabel">remaining</span>
+        <span class="ring-status-dot" id="status-dot"></span>
+      </div>
+    </div>
+
+    <div class="timer-controls">
+      <button class="ctrl-btn primary" onclick="openInput()">Log Now</button>
+      <button class="ctrl-btn" id="btn-pause" onclick="togglePause()">Pause</button>
+      <button class="ctrl-btn" onclick="resetTimer()">Reset</button>
+    </div>
+
+    <div class="status-line" id="status-line">Timer running</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- STATS -->
+  <div class="stats-row">
+    <div class="stat-cell">
+      <span class="stat-val" id="stat-entries">0</span>
+      <span class="stat-key">Entries</span>
+    </div>
+    <div class="stat-cell">
+      <span class="stat-val" id="stat-hours">0.0h</span>
+      <span class="stat-key">Tracked</span>
+    </div>
+    <div class="stat-cell">
+      <span class="stat-val" id="stat-pct">0%</span>
+      <span class="stat-key">Of Day</span>
+    </div>
+  </div>
+
+  <!-- ALERT BANNER -->
+  <div class="alert-banner" id="alert-banner">
+    <span>⏱ 15 minutes complete — what did you accomplish?</span>
+    <button class="alert-dismiss" onclick="dismissAlert()">×</button>
+  </div>
+
+  <!-- INPUT PANEL -->
+  <div class="input-panel" id="input-panel">
+    <div class="input-panel-head">What did you do?</div>
+    <div class="input-body">
+      <textarea id="entry-text" placeholder="Describe what you worked on in the last 15 minutes…" rows="3"></textarea>
+      <button class="save-btn" onclick="saveEntry()">Save</button>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="log-head">
+    <span class="log-title">Today's Activity</span>
+    <button class="log-clear" onclick="clearAll()">Clear all</button>
+  </div>
+
+  <div class="log-list" id="log-list"></div>
+
+</div>
+
+<script>
+const TOTAL = 15 * 60;
+const CIRC  = 2 * Math.PI * 84.7; // ≈532.0
+
+let secs    = TOTAL;
+let paused  = false;
+let timer   = null;
+let entries = [];
+
+// ── Storage ──
+function load() {
+  const today = new Date().toDateString();
+  try {
+    const d = JSON.parse(localStorage.getItem('fl_data') || '{}');
+    if (d.date === today) entries = d.entries || [];
+    const s = parseInt(localStorage.getItem('fl_secs'));
+    if (!isNaN(s) && s > 0 && s <= TOTAL) secs = s;
+  } catch(e) {}
+  render();
+}
+
+function persist() {
+  localStorage.setItem('fl_data', JSON.stringify({ date: new Date().toDateString(), entries }));
+  localStorage.setItem('fl_secs', secs);
+}
+
+// ── Clock ──
+function tickClock() {
+  const now = new Date();
+  document.getElementById('top-date').textContent =
+    now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  document.getElementById('top-time-live').textContent =
+    now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+setInterval(tickClock, 1000);
+tickClock();
+
+// ── Timer ──
+function startTimer() {
+  clearInterval(timer);
+  timer = setInterval(() => {
+    if (paused) return;
+    secs--;
+    persist();
+    drawRing();
+    if (secs <= 0) {
+      secs = TOTAL;
+      onTimerComplete();
+    }
+  }, 1000);
+}
+
+function drawRing() {
+  const frac   = secs / TOTAL;
+  const offset = CIRC * (1 - frac);
+
+  const rp  = document.getElementById('ring-progress');
+  const rg  = document.getElementById('ring-glow');
+  const cd  = document.getElementById('countdown');
+  const dot = document.getElementById('status-dot');
+
+  rp.style.strokeDashoffset = offset;
+  rg.style.strokeDashoffset = offset;
+
+  // colour zones
+  let col, glow;
+  if (secs > 8 * 60) {
+    col = '#c8a96e'; glow = 'rgba(200,169,110,0.5)';        // gold
+  } else if (secs > 3 * 60) {
+    col = '#4a9eff'; glow = 'rgba(74,158,255,0.5)';          // blue
+  } else {
+    col = '#ff4d4d'; glow = 'rgba(255,77,77,0.55)';           // red
+  }
+
+  rp.style.stroke = col;
+  rg.style.stroke = col;
+  rp.style.filter = `drop-shadow(0 0 7px ${glow})`;
+  dot.style.background = col;
+  dot.style.boxShadow  = `0 0 8px ${col}`;
+
+  const m = String(Math.floor(secs / 60)).padStart(2, '0');
+  const s = String(secs % 60).padStart(2, '0');
+  cd.textContent = `${m}:${s}`;
+  cd.style.color = secs <= 3 * 60 ? col : 'var(--text)';
+}
+
+function onTimerComplete() {
+  document.getElementById('alert-banner').classList.add('show');
+  document.getElementById('status-line').textContent = 'Time — log your activity';
+  if (Notification.permission === 'granted')
+    new Notification('Focus Log', { body: '15 min done. Log what you did.' });
+  beep();
+  openInput();
+  drawRing();
+}
+
+function beep() {
+  try {
+    const ctx = new AudioContext();
+    [880, 1100].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = freq;
+      o.type = 'sine';
+      const t = ctx.currentTime + i * 0.22;
+      g.gain.setValueAtTime(0.25, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      o.start(t); o.stop(t + 0.5);
+    });
+  } catch(e) {}
+}
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('btn-pause');
+  btn.textContent = paused ? 'Resume' : 'Pause';
+  document.getElementById('status-line').textContent = paused ? 'Paused' : 'Timer running';
+}
+
+function resetTimer() {
+  secs = TOTAL;
+  paused = false;
+  document.getElementById('btn-pause').textContent = 'Pause';
+  document.getElementById('status-line').textContent = 'Timer running';
+  document.getElementById('alert-banner').classList.remove('show');
+  drawRing();
+  persist();
+}
+
+function dismissAlert() {
+  document.getElementById('alert-banner').classList.remove('show');
+}
+
+// ── Input ──
+function openInput() {
+  document.getElementById('input-panel').classList.add('open');
+  setTimeout(() => document.getElementById('entry-text').focus(), 80);
+}
+
+function closeInput() {
+  document.getElementById('input-panel').classList.remove('open');
+  document.getElementById('entry-text').value = '';
+}
+
+function saveEntry() {
+  const txt = document.getElementById('entry-text').value.trim();
+  if (!txt) return;
+  const now = new Date();
+  entries.unshift({
+    id:   Date.now(),
+    time: now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+    text: txt
+  });
+  closeInput();
+  dismissAlert();
+  document.getElementById('status-line').textContent = 'Timer running';
+  persist();
+  render();
+  toast();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && document.getElementById('input-panel').classList.contains('open')) {
+    const ta = document.getElementById('entry-text');
+    if (document.activeElement === ta) { e.preventDefault(); saveEntry(); }
+  }
+});
+
+function deleteEntry(id) {
+  entries = entries.filter(x => x.id !== id);
+  persist(); render();
+}
+
+function clearAll() {
+  if (!confirm('Clear all entries for today?')) return;
+  entries = []; persist(); render();
+}
+
+// ── Render ──
+function render() {
+  document.getElementById('stat-entries').textContent = entries.length;
+  const h = (entries.length * 15 / 60).toFixed(1);
+  document.getElementById('stat-hours').textContent = h + 'h';
+  const pct = Math.min(100, Math.round(entries.length * 15 / (16 * 60) * 100));
+  document.getElementById('stat-pct').textContent = pct + '%';
+
+  const list = document.getElementById('log-list');
+  if (!entries.length) {
+    list.innerHTML = `<div class="empty">No entries yet</div>`;
+    return;
+  }
+  list.innerHTML = entries.map(e => `
+    <div class="log-entry">
+      <span class="entry-time">${e.time}</span>
+      <span class="entry-text">${esc(e.text)}</span>
+      <button class="entry-del" onclick="deleteEntry(${e.id})" title="Remove">×</button>
+    </div>
+  `).join('');
+}
+
+function toast() {
+  const t = document.getElementById('toast');
+  t.style.display = 'flex';
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => t.style.display = 'none', 2000);
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Init ──
+if ('Notification' in window && Notification.permission === 'default')
+  Notification.requestPermission();
+
+load();
+startTimer();
+drawRing();
+</script>
+</body>
+</html>
