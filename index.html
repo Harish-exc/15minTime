@@ -864,6 +864,24 @@ textarea::placeholder {
 @media (max-width: 480px) {
   .history-row { grid-template-columns: 70px 1fr 48px 56px; gap: 8px; }
 }
+
+/* ── SYNC STATUS ── */
+.sync-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+.sync-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+.sync-badge.synced { color: var(--green); }
+.sync-badge.synced .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.sync-badge.syncing { color: var(--blue); }
+.sync-badge.syncing .dot { background: var(--blue); animation: breathe 1s ease-in-out infinite; }
+.sync-badge.error { color: var(--red); }
+.sync-badge.error .dot { background: var(--red); }
 </style>
 </head>
 <body>
@@ -884,6 +902,9 @@ textarea::placeholder {
       <span class="top-time-live" id="top-time-live"></span>
       <div class="wakelock-badge" id="wakelock-badge" onclick="toggleWakeLock()">
         <span class="dot"></span><span id="wakelock-label">Keep screen on</span>
+      </div>
+      <div class="sync-badge" id="sync-badge">
+        <span class="dot"></span><span id="sync-label">Connecting…</span>
       </div>
     </div>
   </div>
@@ -1010,6 +1031,58 @@ textarea::placeholder {
 
 </div>
 
+<script type="module">
+  // ── Firebase setup ──
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCurtk-OSW-2gtjDLkGP49KTJW8YSKXkOg",
+    authDomain: "time-8eafc.firebaseapp.com",
+    projectId: "time-8eafc",
+    storageBucket: "time-8eafc.firebasestorage.app",
+    messagingSenderId: "555137678443",
+    appId: "1:555137678443:web:4e5a4c2c0653af27ad052e",
+    measurementId: "G-N0T1K1019P"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  let fbAnalytics = null;
+  try { fbAnalytics = getAnalytics(fbApp); } catch (e) { /* analytics can fail on some networks/blockers, app still works */ }
+  const fbAuth = getAuth(fbApp);
+  const fbDb = getFirestore(fbApp);
+
+  // Expose a small bridge so the non-module app script (below) can use Firebase
+  // without needing to be a module itself.
+  window.FocusFirebase = {
+    auth: fbAuth,
+    db: fbDb,
+    analytics: fbAnalytics,
+    ready: false,
+    uid: null,
+    doc, getDoc, setDoc, onSnapshot, serverTimestamp,
+    onReady: null // app script sets this to a callback
+  };
+
+  onAuthStateChanged(fbAuth, (user) => {
+    if (user) {
+      window.FocusFirebase.uid = user.uid;
+      window.FocusFirebase.ready = true;
+      if (typeof window.FocusFirebase.onReady === 'function') {
+        window.FocusFirebase.onReady(user.uid);
+      }
+    }
+  });
+
+  signInAnonymously(fbAuth).catch((err) => {
+    console.error('Firebase anonymous sign-in failed:', err);
+    window.dispatchEvent(new CustomEvent('focus-sync-error', { detail: err.message }));
+  });
+</script>
 <script>
 const TOTAL = 15 * 60;
 const CIRC  = 2 * Math.PI * 84.7; // ≈532.0
@@ -1066,6 +1139,7 @@ function persist() {
   localStorage.setItem('fl_history', JSON.stringify(allDays));
   localStorage.setItem('fl_secs', secs);
   localStorage.setItem('fl_secs_day', tk);
+  queueCloudSync();
 }
 
 function setGoal(v) {
@@ -1075,6 +1149,88 @@ function setGoal(v) {
   localStorage.setItem('fl_goal', goalHours);
   render();
   renderGraph();
+  queueCloudSync();
+}
+
+// ── Cloud sync (Firebase Firestore) ──
+let syncTimer = null;
+let cloudReady = false;
+let suppressNextPush = false; // avoid pushing right after a pull
+
+function setSyncBadge(state, label) {
+  const badge = document.getElementById('sync-badge');
+  const labelEl = document.getElementById('sync-label');
+  if (!badge) return;
+  badge.classList.remove('synced', 'syncing', 'error');
+  if (state) badge.classList.add(state);
+  labelEl.textContent = label;
+}
+
+function queueCloudSync() {
+  if (suppressNextPush) { suppressNextPush = false; return; }
+  if (!cloudReady || !window.FocusFirebase || !window.FocusFirebase.ready) return;
+  clearTimeout(syncTimer);
+  setSyncBadge('syncing', 'Syncing…');
+  syncTimer = setTimeout(pushToCloud, 900);
+}
+
+async function pushToCloud() {
+  try {
+    const fb = window.FocusFirebase;
+    if (!fb || !fb.ready || !fb.uid) return;
+    const ref = fb.doc(fb.db, 'users', fb.uid);
+    await fb.setDoc(ref, {
+      allDays: allDays,
+      goalHours: goalHours,
+      updatedAt: fb.serverTimestamp()
+    }, { merge: true });
+    setSyncBadge('synced', 'Synced');
+  } catch (err) {
+    console.error('Cloud sync failed:', err);
+    setSyncBadge('error', 'Offline (saved locally)');
+  }
+}
+
+async function pullFromCloudAndMerge(uid) {
+  try {
+    const fb = window.FocusFirebase;
+    const ref = fb.doc(fb.db, 'users', uid);
+    const snap = await fb.getDoc(ref);
+    if (snap.exists()) {
+      const cloud = snap.data();
+      if (cloud.allDays && typeof cloud.allDays === 'object') {
+        // merge: for each day, keep whichever has more entries (simple, safe merge)
+        const merged = { ...allDays };
+        Object.keys(cloud.allDays).forEach(k => {
+          const cloudDay = cloud.allDays[k];
+          const localDay = merged[k];
+          if (!localDay || (cloudDay.entries||[]).length > (localDay.entries||[]).length) {
+            merged[k] = cloudDay;
+          }
+        });
+        allDays = merged;
+        const tk = todayKey();
+        if (!allDays[tk]) allDays[tk] = { entries: [] };
+        entries = allDays[tk].entries;
+        localStorage.setItem('fl_history', JSON.stringify(allDays));
+      }
+      if (typeof cloud.goalHours === 'number' && cloud.goalHours > 0) {
+        goalHours = cloud.goalHours;
+        localStorage.setItem('fl_goal', goalHours);
+        document.getElementById('goal-input').value = goalHours;
+      }
+    }
+    cloudReady = true;
+    suppressNextPush = true; // the merge above will trigger renders that call persist-like paths; don't immediately re-push
+    setSyncBadge('synced', 'Synced');
+    render();
+    renderHistory();
+    renderGraph();
+  } catch (err) {
+    console.error('Cloud pull failed:', err);
+    cloudReady = true;
+    setSyncBadge('error', 'Offline (using local data)');
+  }
 }
 
 // ── Day rollover check (in case app stays open across midnight) ──
@@ -1598,6 +1754,38 @@ document.addEventListener('click', function tryAutoWake() {
   }
   document.removeEventListener('click', tryAutoWake);
 }, { once: true });
+
+// ── Hook up Firebase bridge (set by the module script above) ──
+setSyncBadge(null, 'Connecting…');
+
+function attachFirebaseBridge() {
+  if (!window.FocusFirebase) {
+    // module script hasn't run yet, retry shortly
+    setTimeout(attachFirebaseBridge, 150);
+    return;
+  }
+  window.FocusFirebase.onReady = function(uid) {
+    setSyncBadge('syncing', 'Syncing…');
+    pullFromCloudAndMerge(uid);
+  };
+  // in case auth already resolved before we attached
+  if (window.FocusFirebase.ready && window.FocusFirebase.uid) {
+    setSyncBadge('syncing', 'Syncing…');
+    pullFromCloudAndMerge(window.FocusFirebase.uid);
+  }
+}
+attachFirebaseBridge();
+
+window.addEventListener('focus-sync-error', () => {
+  setSyncBadge('error', 'Sign-in failed (using local data)');
+});
+
+window.addEventListener('online', () => {
+  if (cloudReady) queueCloudSync();
+});
+window.addEventListener('offline', () => {
+  setSyncBadge('error', 'Offline (saved locally)');
+});
 </script>
 </body>
 </html>
