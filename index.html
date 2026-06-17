@@ -882,6 +882,80 @@ textarea::placeholder {
 .sync-badge.syncing .dot { background: var(--blue); animation: breathe 1s ease-in-out infinite; }
 .sync-badge.error { color: var(--red); }
 .sync-badge.error .dot { background: var(--red); }
+
+/* ── LOGIN SCREEN ── */
+.login-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 340px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 28px;
+  animation: panelSlide 0.25s ease;
+}
+
+.login-field {
+  margin-bottom: 16px;
+}
+
+.login-field label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 6px;
+}
+
+.login-field input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 11px 13px;
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.login-field input:focus {
+  border-color: var(--accent);
+}
+
+.login-error {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--red);
+  letter-spacing: 0.03em;
+  min-height: 14px;
+  text-align: center;
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  color: var(--text3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  margin-top: 4px;
+  text-decoration: underline;
+}
+.logout-btn:hover { color: var(--text2); }
 </style>
 </head>
 <body>
@@ -889,7 +963,26 @@ textarea::placeholder {
 <div id="flash-overlay"></div>
 <div id="toast"><span class="toast-dot"></span> <span id="toast-msg">Entry logged</span></div>
 
-<div class="shell">
+<div id="login-screen" class="login-screen">
+  <div class="login-card">
+    <div class="brand" style="justify-content:center; margin-bottom:24px;">
+      <div class="brand-pip"></div>
+      <span class="brand-name">Focus Log</span>
+    </div>
+    <div class="login-field">
+      <label for="login-username">Username</label>
+      <input type="text" id="login-username" autocomplete="username" placeholder="Username">
+    </div>
+    <div class="login-field">
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" placeholder="Password">
+    </div>
+    <button class="ctrl-btn primary" id="login-btn" style="width:100%; height:42px; margin-top:6px;" onclick="handleLogin()">Sign In</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<div class="shell" id="app-shell" style="display:none;">
 
   <!-- TOP BAR -->
   <div class="top-bar">
@@ -906,6 +999,7 @@ textarea::placeholder {
       <div class="sync-badge" id="sync-badge">
         <span class="dot"></span><span id="sync-label">Connecting…</span>
       </div>
+      <button class="logout-btn" onclick="handleLogout()">Sign out</button>
     </div>
   </div>
 
@@ -1035,7 +1129,10 @@ textarea::placeholder {
   // ── Firebase setup ──
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
-  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+    onAuthStateChanged, signOut
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import {
     getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -1056,6 +1153,12 @@ textarea::placeholder {
   const fbAuth = getAuth(fbApp);
   const fbDb = getFirestore(fbApp);
 
+  // Single fixed account: username "Harsha" maps to a stable internal email.
+  // Firebase Auth requires an email format even though there's no real inbox behind it.
+  function usernameToEmail(username) {
+    return username.trim().toLowerCase() + '@focuslog.local';
+  }
+
   // Expose a small bridge so the non-module app script (below) can use Firebase
   // without needing to be a module itself.
   window.FocusFirebase = {
@@ -1065,7 +1168,32 @@ textarea::placeholder {
     ready: false,
     uid: null,
     doc, getDoc, setDoc, onSnapshot, serverTimestamp,
-    onReady: null // app script sets this to a callback
+    onReady: null, // app script sets this to a callback
+
+    // Called by the login screen. Tries sign-in first; if the account doesn't
+    // exist yet, creates it (first-run setup for the single fixed user).
+    login: async function(username, password) {
+      const email = usernameToEmail(username);
+      try {
+        await signInWithEmailAndPassword(fbAuth, email, password);
+        return { ok: true, created: false };
+      } catch (err) {
+        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+          // First time this account is used — create it with the given password.
+          try {
+            await createUserWithEmailAndPassword(fbAuth, email, password);
+            return { ok: true, created: true };
+          } catch (createErr) {
+            return { ok: false, error: createErr.code || createErr.message };
+          }
+        }
+        return { ok: false, error: err.code || err.message };
+      }
+    },
+
+    logout: function() {
+      return signOut(fbAuth);
+    }
   };
 
   onAuthStateChanged(fbAuth, (user) => {
@@ -1075,13 +1203,13 @@ textarea::placeholder {
       if (typeof window.FocusFirebase.onReady === 'function') {
         window.FocusFirebase.onReady(user.uid);
       }
+    } else {
+      window.FocusFirebase.uid = null;
+      window.FocusFirebase.ready = false;
     }
   });
 
-  signInAnonymously(fbAuth).catch((err) => {
-    console.error('Firebase anonymous sign-in failed:', err);
-    window.dispatchEvent(new CustomEvent('focus-sync-error', { detail: err.message }));
-  });
+  // No auto sign-in here — the login screen drives authentication now.
 </script>
 <script>
 const TOTAL = 15 * 60;
@@ -1743,48 +1871,130 @@ function esc(s) {
 if ('Notification' in window && Notification.permission === 'default')
   Notification.requestPermission();
 
-load();
-startTimer();
-drawRing();
+// App data/timers don't start until login succeeds.
+function startApp() {
+  load();
+  startTimer();
+  drawRing();
 
-// try to keep screen awake automatically on load (best-effort, requires user gesture on some browsers)
-document.addEventListener('click', function tryAutoWake() {
-  if (!wakeLock) {
-    toggleWakeLock().catch(()=>{});
-  }
-  document.removeEventListener('click', tryAutoWake);
-}, { once: true });
-
-// ── Hook up Firebase bridge (set by the module script above) ──
-setSyncBadge(null, 'Connecting…');
-
-function attachFirebaseBridge() {
-  if (!window.FocusFirebase) {
-    // module script hasn't run yet, retry shortly
-    setTimeout(attachFirebaseBridge, 150);
-    return;
-  }
-  window.FocusFirebase.onReady = function(uid) {
-    setSyncBadge('syncing', 'Syncing…');
-    pullFromCloudAndMerge(uid);
-  };
-  // in case auth already resolved before we attached
-  if (window.FocusFirebase.ready && window.FocusFirebase.uid) {
-    setSyncBadge('syncing', 'Syncing…');
-    pullFromCloudAndMerge(window.FocusFirebase.uid);
-  }
+  // try to keep screen awake automatically on load (best-effort, requires user gesture on some browsers)
+  document.addEventListener('click', function tryAutoWake() {
+    if (!wakeLock) {
+      toggleWakeLock().catch(()=>{});
+    }
+    document.removeEventListener('click', tryAutoWake);
+  }, { once: true });
 }
-attachFirebaseBridge();
-
-window.addEventListener('focus-sync-error', () => {
-  setSyncBadge('error', 'Sign-in failed (using local data)');
-});
 
 window.addEventListener('online', () => {
   if (cloudReady) queueCloudSync();
 });
 window.addEventListener('offline', () => {
   setSyncBadge('error', 'Offline (saved locally)');
+});
+
+// ── Login screen logic ──
+let loggedIn = false;
+
+function waitForFirebaseBridge() {
+  return new Promise(resolve => {
+    (function check() {
+      if (window.FocusFirebase) resolve();
+      else setTimeout(check, 100);
+    })();
+  });
+}
+
+async function handleLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+  errEl.textContent = '';
+
+  if (!username || !password) {
+    errEl.textContent = 'Enter both username and password.';
+    return;
+  }
+
+  btn.textContent = 'Signing in…';
+  btn.disabled = true;
+
+  await waitForFirebaseBridge();
+  const result = await window.FocusFirebase.login(username, password);
+
+  btn.textContent = 'Sign In';
+  btn.disabled = false;
+
+  if (!result.ok) {
+    const friendly = {
+      'auth/wrong-password': 'Incorrect password.',
+      'auth/invalid-credential': 'Incorrect username or password.',
+      'auth/too-many-requests': 'Too many attempts — wait a bit and try again.',
+      'auth/network-request-failed': 'Network error — check your connection.',
+      'auth/weak-password': 'Password must be at least 6 characters.'
+    };
+    errEl.textContent = friendly[result.error] || ('Sign-in failed (' + result.error + ')');
+    return;
+  }
+
+  loggedIn = true;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-shell').style.display = 'flex';
+
+  setSyncBadge('syncing', 'Syncing…');
+
+  // Hook the ready callback for this session's uid (auth state already resolved by login()).
+  const uid = window.FocusFirebase.uid;
+
+  if (result.created) {
+    // Brand-new account: carry over whatever is already in local storage on this
+    // device (e.g. prior anonymous-session data) as this account's first cloud save.
+    try {
+      const localHistory = JSON.parse(localStorage.getItem('fl_history') || '{}');
+      const localGoal = parseFloat(localStorage.getItem('fl_goal')) || goalHours;
+      const ref = window.FocusFirebase.doc(window.FocusFirebase.db, 'users', uid);
+      await window.FocusFirebase.setDoc(ref, {
+        allDays: localHistory,
+        goalHours: localGoal,
+        updatedAt: window.FocusFirebase.serverTimestamp()
+      }, { merge: true });
+    } catch (e) {
+      console.error('Initial data carry-over failed:', e);
+    }
+  }
+
+  cloudReady = false; // reset so the upcoming pull doesn't get suppressed oddly
+  await pullFromCloudAndMerge(uid);
+  startApp();
+}
+
+function handleLogout() {
+  if (!confirm('Sign out? You will need your username and password to open this again.')) return;
+  clearInterval(timer);
+  if (window.FocusFirebase && typeof window.FocusFirebase.logout === 'function') {
+    window.FocusFirebase.logout().catch(()=>{});
+  }
+  loggedIn = false;
+  document.getElementById('app-shell').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-username').value = '';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-error').textContent = '';
+}
+
+// Always require login on page open — sign out any persisted Firebase session.
+waitForFirebaseBridge().then(() => {
+  if (window.FocusFirebase.auth.currentUser) {
+    window.FocusFirebase.logout().catch(()=>{});
+  }
+});
+
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') handleLogin();
+});
+document.getElementById('login-username').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('login-password').focus();
 });
 </script>
 </body>
